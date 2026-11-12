@@ -296,18 +296,18 @@ for (const c of candidates) {
     for (let h = 0; h < H; h++) {
       const hh = horizons[h]!;
       c.mu[h] = CURVE_FLOOR + (c.x0 - CURVE_FLOOR) * Math.exp(-hh / 0.6);
-      c.sigma[h] = 0.25 + 0.05 * hh + (c.mayhem ? 0.15 : 0);
+      c.sigma[h] = 0.25 + 0.03 * hh + (c.mayhem ? 0.15 : 0);
     }
   } else {
-    const g = c.momentum > 0 ? Math.min(0.8, c.momentum * 1.5) : 0;
-    const delta = Math.min(0.08, 0.03 + (0.02 * Math.max(0, c.ageHours - 6)) / 12);
+    const g = c.momentum > 0 ? Math.min(1.2, c.momentum * 2.0) : 0;
+    const delta = Math.min(0.04, 0.01 + (0.02 * Math.max(0, c.ageHours - 6)) / 12);
     c.pc = Math.min(0.35, 0.02 + (0.03 * c.ageHours) / 6 + 0.1 * Math.max(0, c.drawdown - 0.3));
     c.mixMu = 1.6;
     c.mixSigma = 0.3;
     for (let h = 0; h < H; h++) {
       const hh = horizons[h]!;
-      c.mu[h] = c.x0 + g * (1 - Math.exp(-hh / 1.5)) - delta * hh;
-      c.sigma[h] = 0.18 + 0.06 * hh + (c.ageHours < 2 ? 0.1 : 0) + (c.mayhem ? 0.15 : 0);
+      c.mu[h] = c.x0 + g * (1 - Math.exp(-hh / 3)) - delta * hh;
+      c.sigma[h] = Math.min(0.5, 0.15 + 0.03 * hh) + (c.ageHours < 2 ? 0.1 : 0) + (c.mayhem ? 0.15 : 0);
     }
   }
 }
@@ -385,16 +385,18 @@ for (let k = 0; k < PLACES; k++) {
   for (let b = 0; b < NBINS; b++) row[b] = sizeCounts[k * NBINS + b]! / denom;
   sizeProb.push(row);
 }
-// Newcomer right-tail adjustment for places 1-2: mix in a broad lognormal
-// Normal(3.7, 0.5) — post-cut births rocketing to the top.
-const newcomerW = [0.12, 0.08, 0, 0, 0];
-for (let k = 0; k < 2; k++) {
+// Newcomer right-tail adjustment for all places: mix in a broad lognormal
+// Normal(3.6, 0.6) — post-cut births rocketing to the top. Weights fall with
+// place: newcomers take ~1/3 of top-5 slots in the practice (3 of 9 holders),
+// including places 3-5 (CHAT, NIHAONOON, HAMSTER), which v1 left at 0%.
+const newcomerW = [0.25, 0.2, 0.15, 0.1, 0.1];
+for (let k = 0; k < 5; k++) {
   const w = newcomerW[k]!;
   if (w === 0) continue;
   for (let b = 0; b < NBINS; b++) {
     const lo = b === 0 ? -Infinity : edges[b - 1]!;
     const hi = b === NBINS - 1 ? Infinity : edges[b]!;
-    const pLn = above(lo, 3.7, 0.5) - above(hi, 3.7, 0.5);
+    const pLn = above(lo, 3.6, 0.6) - above(hi, 3.6, 0.6);
     sizeProb[k]![b] = (1 - w) * sizeProb[k]![b]! + w * pLn;
   }
 }
