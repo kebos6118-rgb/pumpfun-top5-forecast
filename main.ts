@@ -401,6 +401,55 @@ for (let k = 0; k < 5; k++) {
   }
 }
 
+// ---- Size smoothing (v3) ----------------------------------------------------------
+// The raw MC size histogram is too peaked for the scoring horizons. The truth
+// disperses around the forecast median (effective delta ~0.3 at the 0.16-1.16h
+// practice reads, larger at the 7-13h final reads), and the log score punishes
+// the thin shoulders/tails of a peaked histogram far more than it rewards the
+// peak. A Gaussian convolution (sd 0.30 log10 units = 6 bins) raises the
+// shoulders/tails at a small cost to the mode. Evidence:
+//  - real backtest, cut 20:20 (reads h=0.33/0.50h): size -23.32 -> -21.44 (+1.88)
+//  - real backtest, cut 20:10 (reads h=0.33/0.50/0.66h): size -26.33 -> -24.57 (+1.76)
+//  - real backtest, cut 20:30 (reads h=0.16/0.33h): size -13.25 -> -15.22 (-1.97,
+//    expected: at the shortest horizons the truth sits close to the median, so
+//    a narrow distribution wins there; the practice has 5 of 7 reads at
+//    h>=0.5h and the final is 7-13h, where wide wins)
+//  - practice-calibrated expected-size model (delta growing with horizon):
+//    -17.87 -> -16.78 (+1.09); long-horizon proxy delta 0.4/0.5/0.6:
+//    +1.90/+2.32/+2.51. Order is untouched (size-only step).
+// The kernel mass falling outside bins 0..81 is restored by renormalizing each
+// row to sum 1 (places 4-5 mass sits near the low floor; without this the rows
+// lost up to 42% of their mass at early cuts).
+const SMOOTH_SD = 0.3;
+{
+  const ksd = SMOOTH_SD / 0.05;
+  const R = Math.max(1, Math.ceil(3 * ksd));
+  const ker: number[] = [];
+  let ks = 0;
+  for (let d = -R; d <= R; d++) {
+    const v = Math.exp(-0.5 * (d / ksd) ** 2);
+    ker.push(v);
+    ks += v;
+  }
+  for (let k = 0; k < PLACES; k++) {
+    const row = sizeProb[k]!;
+    const out = new Array<number>(NBINS).fill(0);
+    for (let b = 0; b < NBINS; b++) {
+      let ssum = 0;
+      for (let j = -R; j <= R; j++) {
+        const bb = b + j;
+        if (bb < 0 || bb >= NBINS) continue;
+        ssum += row[bb]! * ker[j + R]!;
+      }
+      out[b] = ssum / ks;
+    }
+    for (let b = 0; b < NBINS; b++) row[b] = out[b]!;
+    let rsum = 0;
+    for (let b = 0; b < NBINS; b++) rsum += row[b]!;
+    if (rsum > 0) for (let b = 0; b < NBINS; b++) row[b] = row[b]! / rsum;
+  }
+}
+
 // ---- Assemble the forecast ------------------------------------------------------
 interface ProbRow {
   mint: string;
